@@ -1,6 +1,6 @@
 """
 나라장터(G2B) 크롤러
-- 발주계획 / 사전규격공개 / 실공고 세 가지 유형 수집
+- 사전규격공개 / 실공고 수집
 - 키워드: 건설사업관리
 """
 import requests
@@ -19,10 +19,6 @@ KEYWORD  = "건설사업관리"
 def _past(days: int = 7):
     today = datetime.now()
     return (today - timedelta(days=days)).strftime("%Y%m%d"), today.strftime("%Y%m%d")
-
-def _future(days: int = 90):
-    today = datetime.now()
-    return today.strftime("%Y%m%d"), (today + timedelta(days=days)).strftime("%Y%m%d")
 
 
 # ── 공통 유틸 ──────────────────────────────────────────────────
@@ -45,14 +41,18 @@ def _fmt_amount(amount: int) -> str:
     return f"{amount:,}원"
 
 def _parse_date(raw) -> str:
-    """YYYYMMDDHHMI 또는 YYYY-MM-DD HH:MI 형식 모두 처리 → YYYY-MM-DD 반환"""
+    """다양한 날짜 형식을 YYYY-MM-DD로 통일"""
     if not raw:
         return ""
     s = str(raw).strip()
+    if not s or s in ("0", "null", "None"):
+        return ""
+    # YYYY-MM-DD 또는 YYYY-MM-DD HH:MM 형식
     if len(s) >= 10 and s[4] == "-":
-        return s[:10]           # 이미 YYYY-MM-DD 형식
-    if len(s) >= 8:
-        return f"{s[:4]}-{s[4:6]}-{s[6:8]}"   # YYYYMMDD... → YYYY-MM-DD
+        return s[:10]
+    # YYYYMMDD 또는 YYYYMMDDHHMMSS 형식
+    if len(s) >= 8 and s[:8].isdigit():
+        return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
     return s
 
 def _map_bid_method(sucsfbid: str, bid: str) -> str:
@@ -70,13 +70,13 @@ def _map_bid_method(sucsfbid: str, bid: str) -> str:
     return sucsfbid or bid or "-"
 
 def _make_url(bid_no: str, bid_seq: str = "00") -> str:
-    """나라장터 공고 상세 URL — framesrc 값을 URL 인코딩하여 링크 오류 방지"""
+    """나라장터 공고 상세 URL"""
     inner = f"/pt/menu/frameBidPbancDtl.do?bidno={bid_no}&bidseq={bid_seq}"
-    return "https://www.g2b.go.kr/pt/menu/selectSubFrame.do?framesrc=" + quote(inner, safe="/")
+    return "https://www.g2b.go.kr/pt/menu/selectSubFrame.do?framesrc=" + quote(inner)
 
 def _make_prenotice_url(reg_no: str) -> str:
     inner = f"/pt/menu/frameBfSpecRgsDtl.do?bfSpecRgsNo={reg_no}"
-    return "https://www.g2b.go.kr/pt/menu/selectSubFrame.do?framesrc=" + quote(inner, safe="/")
+    return "https://www.g2b.go.kr/pt/menu/selectSubFrame.do?framesrc=" + quote(inner)
 
 def _fetch(endpoint: str, extra_params: dict) -> list:
     params = {
@@ -110,6 +110,20 @@ def collect_real_bids() -> list:
         "bidNtceNm":  KEYWORD,
     })
 
+    # ── 디버그: 첫 번째 항목 필드 확인 ──────────────────────────
+    if raw:
+        s = raw[0]
+        print("[DEBUG 실공고 첫번째 항목]")
+        print(f"  전체 필드: {list(s.keys())}")
+        print(f"  bidNtceNo  : {s.get('bidNtceNo','없음')}")
+        print(f"  bidNtceDt  : {s.get('bidNtceDt','없음')}")
+        print(f"  bidClseDt  : {s.get('bidClseDt','없음')}")
+        print(f"  opengDt    : {s.get('opengDt','없음')}")
+        print(f"  ntceInsttNm: {s.get('ntceInsttNm','없음')}")
+        print(f"  dminsttNm  : {s.get('dminsttNm','없음')}")
+        print(f"  presmptPrce: {s.get('presmptPrce','없음')}")
+    # ─────────────────────────────────────────────────────────────
+
     # 정정공고 중복 제거: 같은 bidNtceNo 중 bidNtceOrd 가장 높은 것만 유지
     latest = {}
     for item in raw:
@@ -128,8 +142,8 @@ def collect_real_bids() -> list:
         results.append({
             "collected_at": now,
             "type":         "실공고",
-            "unique_id":    f"공고_{bid_no}",       # 중복확인 전용 키
-            "bid_no":       bid_no,                 # 시트 표시용 공고번호
+            "unique_id":    f"공고_{bid_no}",
+            "bid_no":       bid_no,
             "title":        item.get("bidNtceNm", ""),
             "amount":       amt,
             "amount_str":   _fmt_amount(amt),
@@ -142,8 +156,6 @@ def collect_real_bids() -> list:
             "prenotice_dt": "",
             "announce_dt":  _parse_date(item.get("bidNtceDt")),
             "proposal_dt":  _parse_date(item.get("bidClseDt")),
-            "committee_dt": "",
-            "review_dt":    "",
             "open_dt":      _parse_date(item.get("opengDt")),
             "url":          _make_url(bid_no, bid_seq),
         })
@@ -160,6 +172,19 @@ def collect_prenotice() -> list:
         "inqryEndDt": end   + "2359",
         "bidNtceNm":  KEYWORD,
     })
+
+    # ── 디버그: 첫 번째 항목 필드 확인 ──────────────────────────
+    if raw:
+        s = raw[0]
+        print("[DEBUG 사전규격 첫번째 항목]")
+        print(f"  전체 필드: {list(s.keys())}")
+        print(f"  bfSpecRgsNo     : {s.get('bfSpecRgsNo','없음')}")
+        print(f"  bfSpecRgsDt     : {s.get('bfSpecRgsDt','없음')}")
+        print(f"  opninRcptDdlnDt : {s.get('opninRcptDdlnDt','없음')}")
+        print(f"  ntceInsttNm     : {s.get('ntceInsttNm','없음')}")
+        print(f"  presmptPrce     : {s.get('presmptPrce','없음')}")
+    # ─────────────────────────────────────────────────────────────
+
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     results = []
     for item in raw:
@@ -168,8 +193,8 @@ def collect_prenotice() -> list:
         results.append({
             "collected_at": now,
             "type":         "사전규격",
-            "unique_id":    f"규격_{reg_no}",        # 중복확인 전용 키
-            "bid_no":       reg_no,                  # 시트 표시용 공고번호
+            "unique_id":    f"규격_{reg_no}",
+            "bid_no":       reg_no,
             "title":        item.get("bidNtceNm", "") or item.get("bfSpecRgsBzNm", ""),
             "amount":       amt,
             "amount_str":   _fmt_amount(amt),
@@ -179,53 +204,8 @@ def collect_prenotice() -> list:
             "prenotice_dt": _parse_date(item.get("bfSpecRgsDt")),
             "announce_dt":  "",
             "proposal_dt":  _parse_date(item.get("opninRcptDdlnDt")),
-            "committee_dt": "",
-            "review_dt":    "",
             "open_dt":      "",
-            "url":          _make_url_prenotice(reg_no),
-        })
-    return results
-
-def _make_url_prenotice(reg_no: str) -> str:
-    inner = f"/pt/menu/frameBfSpecRgsDtl.do?bfSpecRgsNo={reg_no}"
-    return "https://www.g2b.go.kr/pt/menu/selectSubFrame.do?framesrc=" + quote(inner, safe="/")
-
-
-# ── 발주계획 ───────────────────────────────────────────────────
-
-def collect_plan() -> list:
-    start, end = _future(90)
-    raw = _fetch("getBidPlanInfoServc", {
-        "inqryDiv":   "1",
-        "inqryBgnDt": start + "0000",
-        "inqryEndDt": end   + "2359",
-        "bidNtceNm":  KEYWORD,
-    })
-    if not raw:
-        return []
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    results = []
-    for item in raw:
-        amt     = _parse_amount(item.get("presmptPrce") or item.get("budgtAmt"))
-        plan_no = item.get("bidPlanNo", "") or item.get("bidNtceNo", "")
-        results.append({
-            "collected_at": now,
-            "type":         "발주계획",
-            "unique_id":    f"계획_{plan_no}",
-            "bid_no":       plan_no,
-            "title":        item.get("bidPlanNm", "") or item.get("bidNtceNm", ""),
-            "amount":       amt,
-            "amount_str":   _fmt_amount(amt),
-            "bid_method":   "-",
-            "org":          item.get("ntceInsttNm", ""),
-            "demand_org":   item.get("dminsttNm", ""),
-            "prenotice_dt": _parse_date(item.get("bidNtceDt")),
-            "announce_dt":  _parse_date(item.get("ntcePlanDt")),
-            "proposal_dt":  "",
-            "committee_dt": "",
-            "review_dt":    "",
-            "open_dt":      "",
-            "url":          "https://www.g2b.go.kr",
+            "url":          _make_prenotice_url(reg_no),
         })
     return results
 
@@ -236,5 +216,4 @@ def collect_all() -> list:
     results = []
     results += collect_real_bids()
     results += collect_prenotice()
-    results += collect_plan()
     return results
