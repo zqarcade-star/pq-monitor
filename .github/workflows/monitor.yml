@@ -1,0 +1,39 @@
+name: PQ Monitor
+
+on:
+  schedule:
+    # KST 06:00 / 09:00 / 12:00 / 15:00 / 18:00 (UTC+9 → UTC)
+    - cron: '0 21 * * *'   # 06:00 KST
+    - cron: '0 0  * * *'   # 09:00 KST
+    - cron: '0 3  * * *'   # 12:00 KST
+    - cron: '0 6  * * *'   # 15:00 KST
+    - cron: '0 9  * * *'   # 18:00 KST
+  workflow_dispatch:        # 수동 실행 버튼
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: Google 인증 파일 생성
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
+
+      - name: PQ 모니터링 실행
+        env:
+          G2B_API_KEY:        ${{ secrets.G2B_API_KEY }}
+          GMAIL_USER:         ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENTS:         ${{ secrets.RECIPIENTS }}
+          SHEET_ID:           ${{ secrets.SHEET_ID }}
+        run: python main.py
