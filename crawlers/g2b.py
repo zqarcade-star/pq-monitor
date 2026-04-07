@@ -135,8 +135,12 @@ def _fetch_all(endpoint: str, extra_params: dict) -> list:
 
 # ── 항목 변환 ───────────────────────────────────────────────────
 
-def _build_item(item: dict) -> dict:
-    amt     = _parse_amount(item.get("presmptPrce") or item.get("asignBdgtAmt"))
+def _build_item(item: dict, source: str = "실공고") -> dict:
+    # 금액: 사전규격은 배정예산 우선 / 실공고는 추정가격 우선
+    if source == "사전규격":
+        amt = _parse_amount(item.get("asignBdgtAmt") or item.get("presmptPrce"))
+    else:
+        amt = _parse_amount(item.get("presmptPrce") or item.get("asignBdgtAmt"))
     bid_no  = item.get("bidNtceNo", "")
     bid_seq = item.get("bidNtceOrd", "00")
 
@@ -177,27 +181,27 @@ def _build_item(item: dict) -> dict:
 # ── 수집 함수 ───────────────────────────────────────────────────
 
 def collect_prenotice() -> list:
-    """사전규격공개 수집"""
-    start, end = _past(2)
+    """사전규격공개 수집 — 등록일 기준 30일 (실공고보다 일찍 올라오므로 범위 넓게)"""
+    start, end = _past(30)
     raw = _fetch_all("getBidPblancListInfoServcPPSSrch", {
         "inqryDiv":   "1",
         "inqryBgnDt": start + "0000",
         "inqryEndDt": end   + "2359",
         "bidNtceNm":  KEYWORD,
     })
-    return [_build_item(i) for i in raw]
+    return [_build_item(i, source="사전규격") for i in raw]
 
 
 def collect_real_bids() -> list:
-    """실공고(등록공고) 수집"""
-    start, end = _past(2)
+    """실공고(등록공고) 수집 — 등록일 기준 7일"""
+    start, end = _past(7)
     raw = _fetch_all("getBidPblancListInfoServc", {
         "inqryDiv":   "1",
         "inqryBgnDt": start + "0000",
         "inqryEndDt": end   + "2359",
         "bidNtceNm":  KEYWORD,
     })
-    return [_build_item(i) for i in raw]
+    return [_build_item(i, source="실공고") for i in raw]
 
 
 def collect_all() -> list:
