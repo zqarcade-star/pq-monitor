@@ -181,22 +181,57 @@ def _build_item(item: dict, source: str = "실공고") -> dict:
 # ── 수집 함수 ───────────────────────────────────────────────────
 
 def collect_prenotice() -> list:
-    """사전규격공개 수집 — 등록일 기준 30일 (실공고보다 일찍 올라오므로 범위 넓게)"""
+    """
+    사전규격공개(R26BD) 수집
+    - getBidPblancListInfoServcPPSSrch 는 실공고(R26BK)를 반환 → 사용 불가
+    - 올바른 엔드포인트를 탐색하여 첫 번째 항목의 공고번호 확인
+    """
     start, end = _past(30)
-    raw = _fetch_all("getBidPblancListInfoServcPPSSrch", {
-        "inqryDiv":   "1",
-        "inqryBgnDt": start + "0000",
-        "inqryEndDt": end   + "2359",
-        "bidNtceNm":  KEYWORD,
-    })
-    # 디버그: 첫 번째 사전규격 항목의 주요 필드 확인
-    if raw:
-        sample = raw[0]
-        print("[DEBUG 사전규격 샘플]")
-        for k in ["bidNtceNo", "bidNtceNm", "ntceKindNm", "presmptPrce",
-                  "asignBdgtAmt", "bidNtceDt", "ntceInsttNm"]:
-            print(f"  {k}: {sample.get(k, '(없음)')}")
-    return [_build_item(i, source="사전규격") for i in raw]
+
+    # 후보 엔드포인트 목록 (순서대로 시도)
+    candidates = [
+        "getBidPblancListInfoServcPPSBD",   # BD 타입 직접
+        "getPrePriceOpenInfoServc",          # 사전규격공개 서비스
+        "getBidPblancListInfoServcPPS",      # PPS 단축형
+    ]
+    for endpoint in candidates:
+        try:
+            params = {
+                "serviceKey": G2B_API_KEY,
+                "type":       "json",
+                "numOfRows":  5,
+                "pageNo":     1,
+                "inqryDiv":   "1",
+                "inqryBgnDt": start + "0000",
+                "inqryEndDt": end   + "2359",
+                "bidNtceNm":  KEYWORD,
+            }
+            resp = requests.get(f"{BASE_URL}/{endpoint}", params=params, timeout=15)
+            data = resp.json()
+            body = data.get("response", {}).get("body", {})
+            items = body.get("items", [])
+            if isinstance(items, dict):
+                items = [items]
+            if items:
+                sample_no = items[0].get("bidNtceNo", "")
+                print(f"[탐색] {endpoint} → bidNtceNo: {sample_no}")
+                if "BD" in sample_no.upper():
+                    print(f"[탐색] 사전규격 엔드포인트 발견: {endpoint}")
+                    # 전체 수집
+                    raw = _fetch_all(endpoint, {
+                        "inqryDiv":   "1",
+                        "inqryBgnDt": start + "0000",
+                        "inqryEndDt": end   + "2359",
+                        "bidNtceNm":  KEYWORD,
+                    })
+                    return [_build_item(i, source="사전규격") for i in raw]
+            else:
+                print(f"[탐색] {endpoint} → 결과 없음 (totalCount={body.get('totalCount',0)})")
+        except Exception as e:
+            print(f"[탐색] {endpoint} → 오류: {e}")
+
+    print("[사전규격] 유효한 엔드포인트를 찾지 못함 — 수집 생략")
+    return []
 
 
 def collect_real_bids() -> list:
