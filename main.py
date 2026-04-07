@@ -1,5 +1,7 @@
 import os, sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+KST = timezone(timedelta(hours=9))
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
@@ -12,7 +14,7 @@ from config            import LOG_FILE, SHEET_ID, CREDENTIALS_FILE
 
 
 def log(msg: str) -> None:
-    ts   = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts   = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S KST")
     line = f"[{ts}] {msg}"
     print(line)
     os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)

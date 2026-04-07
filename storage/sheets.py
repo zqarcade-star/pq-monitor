@@ -9,36 +9,25 @@ from google.oauth2.service_account import Credentials
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
-# ── 시트 열 구조 (A~W, 23열) ──────────────────────────────────
+# ── 시트 열 구조 (A~L, 12열) ──────────────────────────────────
 HEADERS = [
-    "공고종류",       # A  (ntceKindNm - G2B 원본값)
-    "공고명",         # B
-    "추정가격",       # C
-    "낙찰방법",       # D  (sucsfbidMthdNm)
-    "입찰방법",       # E  (bidMethdNm)
-    "공고기관",       # F
-    "수요기관",       # G
-    "PQ여부",         # H
-    "기술제안",       # I
-    "현장설명",       # J
-    "공고일",         # K
-    "입찰시작",       # L
-    "제안서마감",     # M
-    "PQ서류마감",     # N
-    "기술제안마감",   # O
-    "현장설명일",     # P
-    "개찰일",         # Q
-    "실적서류마감",   # R
-    "공고번호",       # S
-    "차수",           # T
-    "링크",           # U
-    "수집시각",       # V
-    "고유ID",         # W  (중복확인용, 숨김)
+    "수집시간",   # A  (KST)
+    "공고종류",   # B
+    "차수",       # C
+    "공고번호",   # D
+    "공고명",     # E
+    "추정가격",   # F
+    "공고기관",   # G
+    "수요기관",   # H
+    "공고일",     # I  (날짜+시간)
+    "개찰일",     # J
+    "링크",       # K
+    "고유ID",     # L  (중복확인용, 숨김)
 ]
 
-LAST_COL      = "W"
+LAST_COL      = "L"
 HEADER_RANGE  = f"A1:{LAST_COL}1"
-UNIQUE_ID_COL = len(HEADERS)   # gspread 1-indexed → 23
+UNIQUE_ID_COL = len(HEADERS)   # gspread 1-indexed → 12
 
 
 def connect(credentials_file: str, sheet_id: str):
@@ -67,15 +56,15 @@ def ensure_headers(sheet) -> None:
         "horizontalAlignment": "CENTER",
     })
 
-    # 고유ID 열(W) 숨기기
+    # 고유ID 열(L) 숨기기
     try:
         sheet.spreadsheet.batch_update({"requests": [{
             "updateDimensionProperties": {
                 "range": {
                     "sheetId": sheet.id,
                     "dimension": "COLUMNS",
-                    "startIndex": 22,   # W열 (0-based)
-                    "endIndex": 23,
+                    "startIndex": 11,   # L열 (0-based)
+                    "endIndex":   12,
                 },
                 "properties": {"hiddenByUser": True},
                 "fields": "hiddenByUser",
@@ -102,29 +91,18 @@ def append_new_items(sheet, items: list) -> list:
         url  = item.get("url", "")
         link = f'=HYPERLINK("{url}","열기")' if url else ""
         rows.append([
-            item.get("ntce_kind", ""),          # A 공고종류
-            item.get("title", ""),              # B 공고명
-            item.get("amount_str", ""),         # C 추정가격
-            item.get("sucsfbid_mthd", ""),      # D 낙찰방법
-            item.get("bid_mthd", ""),           # E 입찰방법
-            item.get("org", ""),                # F 공고기관
-            item.get("demand_org", ""),         # G 수요기관
-            item.get("pq_yn", ""),              # H PQ여부
-            item.get("tp_eval_yn", ""),         # I 기술제안
-            item.get("site_yn", ""),            # J 현장설명
-            item.get("announce_dt", ""),        # K 공고일
-            item.get("bid_begin_dt", ""),       # L 입찰시작
-            item.get("bid_close_dt", ""),       # M 제안서마감
-            item.get("pq_rcpt_dt", ""),         # N PQ서류마감
-            item.get("tp_close_dt", ""),        # O 기술제안마감
-            item.get("site_dt", ""),            # P 현장설명일
-            item.get("open_dt", ""),            # Q 개찰일
-            item.get("arslt_rcpt_dt", ""),      # R 실적서류마감
-            item.get("bid_no", ""),             # S 공고번호
-            item.get("bid_seq", ""),            # T 차수
-            link,                               # U 링크
-            item.get("collected_at", ""),       # V 수집시각
-            item.get("unique_id", ""),          # W 고유ID
+            item.get("collected_at", ""),   # A 수집시간
+            item.get("ntce_kind", ""),      # B 공고종류
+            item.get("bid_seq", ""),        # C 차수
+            item.get("bid_no", ""),         # D 공고번호
+            item.get("title", ""),          # E 공고명
+            item.get("amount_str", ""),     # F 추정가격
+            item.get("org", ""),            # G 공고기관
+            item.get("demand_org", ""),     # H 수요기관
+            item.get("announce_dt", ""),    # I 공고일 (시간 포함)
+            item.get("open_dt", ""),        # J 개찰일
+            link,                           # K 링크
+            item.get("unique_id", ""),      # L 고유ID
         ])
 
     sheet.append_rows(rows, value_input_option="USER_ENTERED")

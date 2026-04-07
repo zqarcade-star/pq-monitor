@@ -4,10 +4,12 @@ Gmail 이메일 알림 발송
 import smtplib, ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text      import MIMEText
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import GMAIL_USER, GMAIL_APP_PASSWORD, RECIPIENTS
+
+KST = timezone(timedelta(hours=9))
 
 
 def _badge(text: str, color: str) -> str:
@@ -30,30 +32,20 @@ def _row(label: str, value: str) -> str:
 
 def _card(item: dict) -> str:
     ntce_kind = item.get("ntce_kind", "")
-    # 공고종류에 따른 배지 색상
-    if "사전규격" in ntce_kind or "사전" in ntce_kind:
+    if "사전규격" in ntce_kind:
         color = "#185FA5"
-    elif "등록공고" in ntce_kind or "실공고" in ntce_kind:
-        color = "#8B1A1A"
+    elif "발주계획" in ntce_kind:
+        color = "#0F6E56"
     else:
-        color = "#555555"
+        color = "#8B1A1A"   # 실공고/등록공고
 
     rows_html = "".join([
-        _row("추정가격",      item.get("amount_str", "")),
-        _row("낙찰방법",      item.get("sucsfbid_mthd", "")),
-        _row("입찰방법",      item.get("bid_mthd", "")),
-        _row("공고기관",      item.get("org", "")),
-        _row("수요기관",      item.get("demand_org", "")),
-        _row("PQ여부",        item.get("pq_yn", "")),
-        _row("기술제안",      item.get("tp_eval_yn", "")),
-        _row("공고일",        item.get("announce_dt", "")),
-        _row("입찰시작",      item.get("bid_begin_dt", "")),
-        _row("제안서마감",    item.get("bid_close_dt", "")),
-        _row("PQ서류마감",    item.get("pq_rcpt_dt", "")),
-        _row("기술제안마감",  item.get("tp_close_dt", "")),
-        _row("현장설명일",    item.get("site_dt", "")),
-        _row("개찰일",        item.get("open_dt", "")),
-        _row("실적서류마감",  item.get("arslt_rcpt_dt", "")),
+        _row("추정가격",   item.get("amount_str", "")),
+        _row("공고기관",   item.get("org", "")),
+        _row("수요기관",   item.get("demand_org", "")),
+        _row("공고일",     item.get("announce_dt", "")),
+        _row("개찰일",     item.get("open_dt", "")),
+        _row("공고번호",   item.get("bid_no", "")),
     ])
     url = item.get("url", "#")
     return f"""
@@ -83,15 +75,12 @@ def build_html(items: list, run_time: str) -> str:
 
   <div style="background:#16213e;border-radius:10px 10px 0 0;padding:18px 24px;">
     <div style="font-size:18px;font-weight:600;color:#fff;">PQ 공고 모니터링</div>
-    <div style="font-size:12px;color:#8888aa;margin-top:3px;">{run_time} 기준</div>
+    <div style="font-size:12px;color:#8888aa;margin-top:3px;">{run_time} (KST) 기준</div>
   </div>
 
-  <div style="background:#fff;padding:14px 24px;display:flex;gap:10px;
-              border-bottom:1px solid #eee;">
-    <div style="flex:1;text-align:center;padding:10px;background:#f9f9f9;border-radius:6px;">
-      <div style="font-size:22px;font-weight:700;color:#16213e;">{len(items)}</div>
-      <div style="font-size:11px;color:#888;">신규 전체</div>
-    </div>
+  <div style="background:#fff;padding:14px 24px;border-bottom:1px solid #eee;text-align:center;">
+    <div style="font-size:22px;font-weight:700;color:#16213e;">{len(items)}</div>
+    <div style="font-size:11px;color:#888;">신규 공고</div>
   </div>
 
   <div style="background:#fff;padding:16px 24px 20px;border-radius:0 0 10px 10px;">
@@ -106,7 +95,7 @@ def build_html(items: list, run_time: str) -> str:
 
 
 def send(items: list) -> None:
-    run_time = datetime.now().strftime("%Y.%m.%d %H:%M")
+    run_time = datetime.now(KST).strftime("%Y.%m.%d %H:%M")
     subject  = f"[PQ 알림] 신규 공고 {len(items)}건 — {run_time}"
 
     msg = MIMEMultipart("alternative")
