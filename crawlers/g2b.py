@@ -189,6 +189,13 @@ def collect_prenotice() -> list:
         "inqryEndDt": end   + "2359",
         "bidNtceNm":  KEYWORD,
     })
+    # 디버그: 첫 번째 사전규격 항목의 주요 필드 확인
+    if raw:
+        sample = raw[0]
+        print("[DEBUG 사전규격 샘플]")
+        for k in ["bidNtceNo", "bidNtceNm", "ntceKindNm", "presmptPrce",
+                  "asignBdgtAmt", "bidNtceDt", "ntceInsttNm"]:
+            print(f"  {k}: {sample.get(k, '(없음)')}")
     return [_build_item(i, source="사전규격") for i in raw]
 
 
