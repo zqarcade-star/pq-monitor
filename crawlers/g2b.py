@@ -5,6 +5,7 @@
 """
 import requests
 from datetime import datetime, timedelta
+from urllib.parse import quote
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import G2B_API_KEY
@@ -43,6 +44,17 @@ def _fmt_amount(amount: int) -> str:
         return f"{amount / 10_000:.0f}만"
     return f"{amount:,}원"
 
+def _parse_date(raw) -> str:
+    """YYYYMMDDHHMI 또는 YYYY-MM-DD HH:MI 형식 모두 처리 → YYYY-MM-DD 반환"""
+    if not raw:
+        return ""
+    s = str(raw).strip()
+    if len(s) >= 10 and s[4] == "-":
+        return s[:10]           # 이미 YYYY-MM-DD 형식
+    if len(s) >= 8:
+        return f"{s[:4]}-{s[4:6]}-{s[6:8]}"   # YYYYMMDD... → YYYY-MM-DD
+    return s
+
 def _map_bid_method(sucsfbid: str, bid: str) -> str:
     s = f"{sucsfbid} {bid}"
     if "협상" in s:
@@ -58,11 +70,13 @@ def _map_bid_method(sucsfbid: str, bid: str) -> str:
     return sucsfbid or bid or "-"
 
 def _make_url(bid_no: str, bid_seq: str = "00") -> str:
-    return (
-        "https://www.g2b.go.kr/pt/menu/selectSubFrame.do?"
-        f"framesrc=/pt/menu/frameBidPbancDtl.do?"
-        f"bidno={bid_no}&bidseq={bid_seq}"
-    )
+    """나라장터 공고 상세 URL — framesrc 값을 URL 인코딩하여 링크 오류 방지"""
+    inner = f"/pt/menu/frameBidPbancDtl.do?bidno={bid_no}&bidseq={bid_seq}"
+    return "https://www.g2b.go.kr/pt/menu/selectSubFrame.do?framesrc=" + quote(inner, safe="/")
+
+def _make_prenotice_url(reg_no: str) -> str:
+    inner = f"/pt/menu/frameBfSpecRgsDtl.do?bfSpecRgsNo={reg_no}"
+    return "https://www.g2b.go.kr/pt/menu/selectSubFrame.do?framesrc=" + quote(inner, safe="/")
 
 def _fetch(endpoint: str, extra_params: dict) -> list:
     params = {
@@ -95,16 +109,27 @@ def collect_real_bids() -> list:
         "inqryEndDt": end   + "2359",
         "bidNtceNm":  KEYWORD,
     })
+
+    # 정정공고 중복 제거: 같은 bidNtceNo 중 bidNtceOrd 가장 높은 것만 유지
+    latest = {}
+    for item in raw:
+        no  = item.get("bidNtceNo", "")
+        seq = item.get("bidNtceOrd", "00")
+        if no not in latest or seq > latest[no].get("bidNtceOrd", "00"):
+            latest[no] = item
+    raw = list(latest.values())
+
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     results = []
     for item in raw:
-        amt = _parse_amount(item.get("presmptPrce") or item.get("asignBdgtAmt"))
+        amt     = _parse_amount(item.get("presmptPrce") or item.get("asignBdgtAmt"))
         bid_no  = item.get("bidNtceNo", "")
         bid_seq = item.get("bidNtceOrd", "00")
         results.append({
             "collected_at": now,
             "type":         "실공고",
-            "bid_no":       f"{bid_no}_{bid_seq}",
+            "unique_id":    f"공고_{bid_no}",       # 중복확인 전용 키
+            "bid_no":       bid_no,                 # 시트 표시용 공고번호
             "title":        item.get("bidNtceNm", ""),
             "amount":       amt,
             "amount_str":   _fmt_amount(amt),
@@ -115,11 +140,11 @@ def collect_real_bids() -> list:
             "org":          item.get("ntceInsttNm", ""),
             "demand_org":   item.get("dminsttNm", ""),
             "prenotice_dt": "",
-            "announce_dt":  (item.get("bidNtceDt") or "")[:10],
-            "proposal_dt":  (item.get("bidClseDt") or "")[:10],
+            "announce_dt":  _parse_date(item.get("bidNtceDt")),
+            "proposal_dt":  _parse_date(item.get("bidClseDt")),
             "committee_dt": "",
             "review_dt":    "",
-            "open_dt":      (item.get("opengDt") or "")[:10],
+            "open_dt":      _parse_date(item.get("opengDt")),
             "url":          _make_url(bid_no, bid_seq),
         })
     return results
@@ -143,34 +168,32 @@ def collect_prenotice() -> list:
         results.append({
             "collected_at": now,
             "type":         "사전규격",
-            "bid_no":       f"PRE_{reg_no}",
+            "unique_id":    f"규격_{reg_no}",        # 중복확인 전용 키
+            "bid_no":       reg_no,                  # 시트 표시용 공고번호
             "title":        item.get("bidNtceNm", "") or item.get("bfSpecRgsBzNm", ""),
             "amount":       amt,
             "amount_str":   _fmt_amount(amt),
             "bid_method":   "-",
             "org":          item.get("ntceInsttNm", ""),
             "demand_org":   item.get("dminsttNm", ""),
-            "prenotice_dt": (item.get("bfSpecRgsDt") or "")[:10],
+            "prenotice_dt": _parse_date(item.get("bfSpecRgsDt")),
             "announce_dt":  "",
-            "proposal_dt":  (item.get("opninRcptDdlnDt") or "")[:10],
+            "proposal_dt":  _parse_date(item.get("opninRcptDdlnDt")),
             "committee_dt": "",
             "review_dt":    "",
             "open_dt":      "",
-            "url":          (
-                "https://www.g2b.go.kr/pt/menu/selectSubFrame.do?"
-                f"framesrc=/pt/menu/frameBfSpecRgsDtl.do?bfSpecRgsNo={reg_no}"
-            ),
+            "url":          _make_url_prenotice(reg_no),
         })
     return results
+
+def _make_url_prenotice(reg_no: str) -> str:
+    inner = f"/pt/menu/frameBfSpecRgsDtl.do?bfSpecRgsNo={reg_no}"
+    return "https://www.g2b.go.kr/pt/menu/selectSubFrame.do?framesrc=" + quote(inner, safe="/")
 
 
 # ── 발주계획 ───────────────────────────────────────────────────
 
 def collect_plan() -> list:
-    """
-    발주계획 수집 (오늘 ~ 90일 이후 예정 공고).
-    나라장터 발주계획 API 엔드포인트가 활성화된 경우에만 수집됩니다.
-    """
     start, end = _future(90)
     raw = _fetch("getBidPlanInfoServc", {
         "inqryDiv":   "1",
@@ -183,20 +206,21 @@ def collect_plan() -> list:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     results = []
     for item in raw:
-        amt = _parse_amount(item.get("presmptPrce") or item.get("budgtAmt"))
+        amt     = _parse_amount(item.get("presmptPrce") or item.get("budgtAmt"))
         plan_no = item.get("bidPlanNo", "") or item.get("bidNtceNo", "")
         results.append({
             "collected_at": now,
             "type":         "발주계획",
-            "bid_no":       f"PLAN_{plan_no}",
+            "unique_id":    f"계획_{plan_no}",
+            "bid_no":       plan_no,
             "title":        item.get("bidPlanNm", "") or item.get("bidNtceNm", ""),
             "amount":       amt,
             "amount_str":   _fmt_amount(amt),
             "bid_method":   "-",
             "org":          item.get("ntceInsttNm", ""),
             "demand_org":   item.get("dminsttNm", ""),
-            "prenotice_dt": (item.get("bidNtceDt") or "")[:10],
-            "announce_dt":  (item.get("ntcePlanDt") or "")[:10],
+            "prenotice_dt": _parse_date(item.get("bidNtceDt")),
+            "announce_dt":  _parse_date(item.get("ntcePlanDt")),
             "proposal_dt":  "",
             "committee_dt": "",
             "review_dt":    "",
