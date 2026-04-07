@@ -1,7 +1,8 @@
 """
 나라장터(G2B) 크롤러
-- 사전규격공개 / 실공고 수집
+- 사전규격공개 / 실공고 전체 수집 (페이지네이션)
 - 키워드: 건설사업관리
+- API 제공 필드 전체 수집
 """
 import requests
 from datetime import datetime, timedelta
@@ -13,14 +14,11 @@ BASE_URL = "http://apis.data.go.kr/1230000/ad/BidPublicInfoService"
 KEYWORD  = "건설사업관리"
 
 
-# ── 날짜 범위 ──────────────────────────────────────────────────
+# ── 유틸 ───────────────────────────────────────────────────────
 
 def _past(days: int = 7):
     today = datetime.now()
     return (today - timedelta(days=days)).strftime("%Y%m%d"), today.strftime("%Y%m%d")
-
-
-# ── 공통 유틸 ──────────────────────────────────────────────────
 
 def _parse_amount(raw) -> int:
     if not raw:
@@ -40,7 +38,6 @@ def _fmt_amount(amount: int) -> str:
     return f"{amount:,}원"
 
 def _parse_date(raw) -> str:
-    """'2026-03-31 06:16:53' 또는 'YYYYMMDD...' → 'YYYY-MM-DD'"""
     if not raw:
         return ""
     s = str(raw).strip()
@@ -52,115 +49,129 @@ def _parse_date(raw) -> str:
         return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
     return s
 
-def _map_bid_method(sucsfbid: str, bid: str) -> str:
-    s = f"{sucsfbid} {bid}"
-    if "협상" in s:
-        return "협상(기술제안)"
-    if "soq" in s.lower() or "자격사전심사" in s:
-        return "SOQ"
-    if "최저가" in s:
-        return "최저가"
-    if "적격" in s:
-        return "적격심사"
-    if "서면" in s:
-        return "서면평가"
-    return sucsfbid or bid or "-"
+def _yn(val: str) -> str:
+    if val == "Y": return "있음"
+    if val == "N": return "없음"
+    return val or ""
 
-def _fetch(endpoint: str, extra_params: dict) -> list:
-    params = {
-        "serviceKey": G2B_API_KEY,
-        "type":       "json",
-        "numOfRows":  100,
-        "pageNo":     1,
-    }
-    params.update(extra_params)
-    try:
-        resp = requests.get(f"{BASE_URL}/{endpoint}", params=params, timeout=15)
-        resp.raise_for_status()
-        data  = resp.json()
-        items = data.get("response", {}).get("body", {}).get("items", [])
-        if isinstance(items, dict):
-            items = [items]
-        return items or []
-    except Exception as e:
-        print(f"[G2B/{endpoint}] 수집 실패: {e}")
-        return []
 
-def _build_item(item: dict, type_label: str) -> dict:
-    """API 응답 항목을 공통 형식으로 변환"""
+# ── 전체 페이지 수집 ────────────────────────────────────────────
+
+def _fetch_all(endpoint: str, extra_params: dict) -> list:
+    all_items = []
+    page = 1
+    while True:
+        params = {
+            "serviceKey": G2B_API_KEY,
+            "type":       "json",
+            "numOfRows":  100,
+            "pageNo":     page,
+        }
+        params.update(extra_params)
+        try:
+            resp  = requests.get(f"{BASE_URL}/{endpoint}", params=params, timeout=20)
+            resp.raise_for_status()
+            data  = resp.json()
+            body  = data.get("response", {}).get("body", {})
+            items = body.get("items", [])
+            if isinstance(items, dict):
+                items = [items]
+            items = items or []
+            all_items += items
+
+            total = int(body.get("totalCount", 0))
+            print(f"[G2B/{endpoint}] 페이지 {page}: {len(items)}건 (누계 {len(all_items)}/{total})")
+
+            if len(all_items) >= total or len(items) < 100:
+                break
+            page += 1
+        except Exception as e:
+            print(f"[G2B/{endpoint}] 페이지 {page} 실패: {e}")
+            break
+    return all_items
+
+
+# ── 항목 변환 ───────────────────────────────────────────────────
+
+def _build_item(item: dict) -> dict:
     amt     = _parse_amount(item.get("presmptPrce") or item.get("asignBdgtAmt"))
     bid_no  = item.get("bidNtceNo", "")
     bid_seq = item.get("bidNtceOrd", "00")
 
-    # API가 직접 제공하는 URL 우선 사용
-    url = (
-        item.get("bidNtceDtlUrl") or
-        item.get("bidNtceUrl") or
-        ""
-    )
+    # 정정공고 표시
+    title = item.get("bidNtceNm", "")
+    if item.get("reNtceYn") == "Y" and bid_seq != "00":
+        title = f"[정정 {int(bid_seq)}차] {title}"
+
+    url = item.get("bidNtceDtlUrl") or item.get("bidNtceUrl") or ""
 
     return {
-        "collected_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "type":         type_label,
-        "unique_id":    f"bid_{bid_no}",           # 두 API 간 중복 방지
-        "bid_no":       bid_no,
-        "title":        item.get("bidNtceNm", ""),
-        "amount":       amt,
-        "amount_str":   _fmt_amount(amt),
-        "bid_method":   _map_bid_method(
-                            item.get("sucsfbidMthdNm", ""),
-                            item.get("bidMethdNm", "")  # ← 정확한 필드명
-                        ),
-        "org":          item.get("ntceInsttNm", ""),
-        "demand_org":   item.get("dminsttNm", ""),
-        "prenotice_dt": "",
-        "announce_dt":  _parse_date(item.get("bidNtceDt")),
-        "proposal_dt":  _parse_date(item.get("bidClseDt")),
-        "open_dt":      _parse_date(item.get("opengDt")),
-        "url":          url,
+        "collected_at":  datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "unique_id":     f"bid_{bid_no}_{bid_seq}",
+        # 공고 기본
+        "ntce_kind":     item.get("ntceKindNm", ""),       # 공고종류 (나라장터 원본)
+        "bid_no":        bid_no,
+        "bid_seq":       bid_seq,
+        "title":         title,
+        # 금액·방법
+        "amount":        amt,
+        "amount_str":    _fmt_amount(amt),
+        "sucsfbid_mthd": item.get("sucsfbidMthdNm", ""),   # 낙찰방법
+        "bid_mthd":      item.get("bidMethdNm", ""),        # 입찰방법
+        # 기관
+        "org":           item.get("ntceInsttNm", ""),       # 공고기관
+        "demand_org":    item.get("dminsttNm", ""),         # 수요기관
+        # 평가 방식
+        "pq_yn":         _yn(item.get("pqEvalYn", "")),     # PQ 여부
+        "tp_eval_yn":    _yn(item.get("tpEvalYn", "")),     # 기술제안 여부
+        "site_yn":       _yn(item.get("ntceDscrptYn", "")), # 현장설명 여부
+        # 일정
+        "announce_dt":   _parse_date(item.get("bidNtceDt")),            # 공고일
+        "bid_begin_dt":  _parse_date(item.get("bidBeginDt")),           # 입찰시작
+        "bid_close_dt":  _parse_date(item.get("bidClseDt")),            # 제안서마감
+        "pq_rcpt_dt":    _parse_date(item.get("pqApplDocRcptDt")),      # PQ서류마감
+        "tp_close_dt":   _parse_date(item.get("tpEvalApplClseDt")),     # 기술제안마감
+        "site_dt":       _parse_date(item.get("dcmtgOprtnDt")),         # 현장설명일
+        "open_dt":       _parse_date(item.get("opengDt")),              # 개찰일
+        "arslt_rcpt_dt": _parse_date(item.get("arsltReqstdocRcptDt")), # 실적서류마감
+        "url":           url,
     }
 
 
-# ── 사전규격 (먼저 수집 → 중복 시 사전규격 우선) ──────────────
+# ── 수집 함수 ───────────────────────────────────────────────────
 
 def collect_prenotice() -> list:
     start, end = _past(7)
-    raw = _fetch("getBidPblancListInfoServcPPSSrch", {
+    raw = _fetch_all("getBidPblancListInfoServcPPSSrch", {
         "inqryDiv":   "1",
         "inqryBgnDt": start + "0000",
         "inqryEndDt": end   + "2359",
         "bidNtceNm":  KEYWORD,
     })
-    return [_build_item(i, "사전규격") for i in raw]
+    return [_build_item(i) for i in raw]
 
-
-# ── 실공고 ─────────────────────────────────────────────────────
 
 def collect_real_bids() -> list:
     start, end = _past(7)
-    raw = _fetch("getBidPblancListInfoServc", {
+    raw = _fetch_all("getBidPblancListInfoServc", {
         "inqryDiv":   "1",
         "inqryBgnDt": start + "0000",
         "inqryEndDt": end   + "2359",
         "bidNtceNm":  KEYWORD,
     })
+    return [_build_item(i) for i in raw]
 
-    # 정정공고 중복 제거: 같은 bidNtceNo 중 bidNtceOrd 가장 높은 것만 유지
-    latest = {}
-    for item in raw:
-        no  = item.get("bidNtceNo", "")
-        seq = item.get("bidNtceOrd", "00")
-        if no not in latest or seq > latest[no].get("bidNtceOrd", "00"):
-            latest[no] = item
-
-    return [_build_item(i, "실공고") for i in latest.values()]
-
-
-# ── 전체 수집 ──────────────────────────────────────────────────
 
 def collect_all() -> list:
-    # 사전규격 먼저 → 실공고 나중 (동일 공고번호 중복 시 사전규격 표시 우선)
     results = []
-    results += collect_prenotice()
-    results += collect_real_bids()
-    return results
+    results += collect_prenotice()   # 사전규격 먼저
+    results += collect_real_bids()   # 실공고 나중
+
+    # 배치 내 중복 제거 (unique_id 기준, 사전규격 우선)
+    seen, deduped = set(), []
+    for item in results:
+        uid = item.get("unique_id", "")
+        if uid and uid not in seen:
+            seen.add(uid)
+            deduped.append(item)
+    return deduped

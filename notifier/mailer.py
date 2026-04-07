@@ -9,12 +9,6 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import GMAIL_USER, GMAIL_APP_PASSWORD, RECIPIENTS
 
-TYPE_COLOR = {
-    "발주계획": "#0F6E56",
-    "사전규격": "#185FA5",
-    "실공고":   "#8B1A1A",
-}
-
 
 def _badge(text: str, color: str) -> str:
     return (
@@ -35,26 +29,38 @@ def _row(label: str, value: str) -> str:
 
 
 def _card(item: dict) -> str:
-    t = item.get("type", "")
-    color = TYPE_COLOR.get(t, "#555")
+    ntce_kind = item.get("ntce_kind", "")
+    # 공고종류에 따른 배지 색상
+    if "사전규격" in ntce_kind or "사전" in ntce_kind:
+        color = "#185FA5"
+    elif "등록공고" in ntce_kind or "실공고" in ntce_kind:
+        color = "#8B1A1A"
+    else:
+        color = "#555555"
+
     rows_html = "".join([
         _row("추정가격",      item.get("amount_str", "")),
-        _row("입찰방식",      item.get("bid_method", "")),
-        _row("발주기관",      item.get("org", "")),
+        _row("낙찰방법",      item.get("sucsfbid_mthd", "")),
+        _row("입찰방법",      item.get("bid_mthd", "")),
+        _row("공고기관",      item.get("org", "")),
         _row("수요기관",      item.get("demand_org", "")),
-        _row("사전예고",      item.get("prenotice_dt", "")),
+        _row("PQ여부",        item.get("pq_yn", "")),
+        _row("기술제안",      item.get("tp_eval_yn", "")),
         _row("공고일",        item.get("announce_dt", "")),
-        _row("제안서마감",    item.get("proposal_dt", "")),
-        _row("위원추첨",      item.get("committee_dt", "")),
-        _row("심사",          item.get("review_dt", "")),
-        _row("개찰",          item.get("open_dt", "")),
+        _row("입찰시작",      item.get("bid_begin_dt", "")),
+        _row("제안서마감",    item.get("bid_close_dt", "")),
+        _row("PQ서류마감",    item.get("pq_rcpt_dt", "")),
+        _row("기술제안마감",  item.get("tp_close_dt", "")),
+        _row("현장설명일",    item.get("site_dt", "")),
+        _row("개찰일",        item.get("open_dt", "")),
+        _row("실적서류마감",  item.get("arslt_rcpt_dt", "")),
     ])
     url = item.get("url", "#")
     return f"""
 <div style="border:1px solid #e0e0e0;border-radius:8px;padding:14px 16px;
             margin-bottom:10px;background:#fff;">
   <div style="margin-bottom:8px;">
-    {_badge(t, color)}
+    {_badge(ntce_kind or "공고", color)}
     <span style="font-size:14px;font-weight:600;color:#1a1a1a;
                  margin-left:6px;">{item.get("title","")}</span>
   </div>
@@ -69,8 +75,6 @@ def _card(item: dict) -> str:
 
 def build_html(items: list, run_time: str) -> str:
     cards = "".join(_card(i) for i in items)
-    cnt = {t: sum(1 for i in items if i.get("type") == t)
-           for t in ["발주계획", "사전규격", "실공고"]}
     return f"""<!DOCTYPE html>
 <html lang="ko">
 <head><meta charset="UTF-8"></head>
@@ -87,18 +91,6 @@ def build_html(items: list, run_time: str) -> str:
     <div style="flex:1;text-align:center;padding:10px;background:#f9f9f9;border-radius:6px;">
       <div style="font-size:22px;font-weight:700;color:#16213e;">{len(items)}</div>
       <div style="font-size:11px;color:#888;">신규 전체</div>
-    </div>
-    <div style="flex:1;text-align:center;padding:10px;background:#f9f9f9;border-radius:6px;">
-      <div style="font-size:22px;font-weight:700;color:#0F6E56;">{cnt["발주계획"]}</div>
-      <div style="font-size:11px;color:#888;">발주계획</div>
-    </div>
-    <div style="flex:1;text-align:center;padding:10px;background:#f9f9f9;border-radius:6px;">
-      <div style="font-size:22px;font-weight:700;color:#185FA5;">{cnt["사전규격"]}</div>
-      <div style="font-size:11px;color:#888;">사전규격</div>
-    </div>
-    <div style="flex:1;text-align:center;padding:10px;background:#f9f9f9;border-radius:6px;">
-      <div style="font-size:22px;font-weight:700;color:#8B1A1A;">{cnt["실공고"]}</div>
-      <div style="font-size:11px;color:#888;">실공고</div>
     </div>
   </div>
 
