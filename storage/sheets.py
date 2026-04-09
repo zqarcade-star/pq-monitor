@@ -37,14 +37,18 @@ def connect(credentials_file: str, sheet_id: str):
 
 
 def ensure_headers(sheet) -> None:
-    """헤더가 정확히 일치하지 않으면 시트 전체 초기화 후 재생성"""
+    """헤더가 정확히 일치하지 않으면 헤더 행만 수정 (데이터 보존)"""
     current = sheet.row_values(1)
     if current == HEADERS:
         return
 
-    print("[시트] 헤더 구조 변경 감지 → 초기화 후 재생성")
-    sheet.clear()
-    sheet.append_row(HEADERS)
+    print("[시트] 헤더 구조 변경 감지 → 헤더 행만 수정")
+    # 시트 전체를 지우지 않고 헤더 행(1행)만 업데이트 → M열 이후 사용자 데이터 보존
+    if not current:
+        # 완전히 빈 시트일 때만 append
+        sheet.append_row(HEADERS)
+    else:
+        sheet.update("A1", [HEADERS])
 
     # 헤더 행 스타일
     sheet.format(HEADER_RANGE, {
@@ -55,6 +59,20 @@ def ensure_headers(sheet) -> None:
         },
         "horizontalAlignment": "CENTER",
     })
+
+    # 1행 고정 (스크롤해도 헤더 유지)
+    try:
+        sheet.spreadsheet.batch_update({"requests": [{
+            "updateSheetProperties": {
+                "properties": {
+                    "sheetId": sheet.id,
+                    "gridProperties": {"frozenRowCount": 1},
+                },
+                "fields": "gridProperties.frozenRowCount",
+            }
+        }]})
+    except Exception as e:
+        print(f"[시트] 행 고정 실패(무시): {e}")
 
     # 고유ID 열(L) 숨기기
     try:
