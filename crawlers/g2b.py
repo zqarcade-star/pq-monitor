@@ -191,16 +191,11 @@ def _build_item(item: dict, source: str = "실공고") -> dict:
 
 def _build_prenotice_item(item: dict) -> dict:
     """HrcspSsstndrdInfoService 응답 → 표준 item 구조 변환"""
-    amt     = _parse_amount(item.get("asignBdgtAmt") or item.get("presmptPrce"))
-    reg_no  = item.get("bfSpecRgstNo", "")
-    # 품명 필드는 API에 따라 다를 수 있어 여러 후보 시도
-    title   = (item.get("bidNtceNm")
-               or item.get("prdctClsfcNoNm")
-               or item.get("specNm")
-               or "")
-    url     = (item.get("specDocFileUrl")
-               or item.get("bidNtceDtlUrl")
-               or "")
+    amt    = _parse_amount(item.get("asignBdgtAmt") or item.get("presmptPrce"))
+    reg_no = item.get("bfSpecRgstNo", "")
+    title  = item.get("prdctClsfcNoNm") or ""
+    url    = (item.get("specDocFileUrl1") or item.get("specDocFileUrl2")
+              or item.get("specDocFileUrl3") or "")
 
     return {
         "collected_at": _now_kst().strftime("%Y-%m-%d %H:%M"),
@@ -211,10 +206,10 @@ def _build_prenotice_item(item: dict) -> dict:
         "title":        title,
         "amount":       amt,
         "amount_str":   _fmt_amount(amt),
-        "org":          item.get("ntceInsttNm", ""),
-        "demand_org":   item.get("dminsttNm", ""),
+        "org":          item.get("orderInsttNm", ""),
+        "demand_org":   item.get("rlDminsttNm", ""),
         "announce_dt":  _parse_datetime(item.get("rgstDt")),
-        "open_dt":      _parse_date(item.get("opnnRcptdDt")),
+        "open_dt":      _parse_date(item.get("opninRgstClseDt")),
         "url":          url,
     }
 
@@ -247,8 +242,6 @@ def collect_prenotice() -> list:
 
     matched = [i for i in raw if any(kw in _title_of(i) for kw in CM_KEYWORDS)]
     print(f"[사전규격] 전체 {len(raw)}건 중 키워드 매칭 {len(matched)}건")
-    if matched:
-        print(f"[사전규격][디버그] 샘플 필드: {list(matched[0].keys())}")
     return [_build_prenotice_item(i) for i in matched]
 
 
@@ -300,14 +293,12 @@ def collect_order_plans() -> list:
     recent = [i for i in matched if (i.get("nticeDt") or "") >= cutoff]
 
     print(f"[발주계획] 전체 {len(raw)}건 → 키워드 {len(matched)}건 → 최근 3일 {len(recent)}건")
-    if recent:
-        print(f"[발주계획][디버그] 샘플 필드: {list(recent[0].keys())}")
     return [_build_orderplan_item(i) for i in recent]
 
 
 def collect_real_bids() -> list:
-    """실공고(등록공고) 수집 — 등록일 기준 7일"""
-    start, end = _past(7)
+    """실공고(등록공고) 수집 — 등록일 기준 3일 (KST)"""
+    start, end = _past(3)
     raw = _fetch_all("getBidPblancListInfoServc", {
         "inqryDiv":   "1",
         "inqryBgnDt": start + "0000",
