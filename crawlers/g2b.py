@@ -10,9 +10,17 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import G2B_API_KEY
 
-BASE_URL = "http://apis.data.go.kr/1230000/ad/BidPublicInfoService"
+BASE_URL           = "http://apis.data.go.kr/1230000/ad/BidPublicInfoService"
+PRENOTICE_BASE_URL = "https://apis.data.go.kr/1230000/ao/HrcspSsstndrdInfoService"
+ORDERPLAN_BASE_URL = "https://apis.data.go.kr/1230000/ao/OrderPlanSttusService"
 KEYWORD  = "건설사업관리"
 KST      = timezone(timedelta(hours=9))
+
+# 사전규격/발주계획 공통 키워드 (클라이언트 필터용)
+CM_KEYWORDS = [
+    "건설사업관리", "건설사업 관리", "CM용역", "건설관리",
+    "감독권한대행", "건설PM",
+]
 
 
 # ── 유틸 ───────────────────────────────────────────────────────
@@ -99,7 +107,8 @@ def _classify_by_no(bid_no: str) -> str:
 
 # ── 전체 페이지 수집 ────────────────────────────────────────────
 
-def _fetch_all(endpoint: str, extra_params: dict) -> list:
+def _fetch_all(endpoint: str, extra_params: dict, base_url: str = None) -> list:
+    url_base  = base_url or BASE_URL
     all_items = []
     page = 1
     while True:
@@ -111,7 +120,7 @@ def _fetch_all(endpoint: str, extra_params: dict) -> list:
         }
         params.update(extra_params)
         try:
-            resp  = requests.get(f"{BASE_URL}/{endpoint}", params=params, timeout=20)
+            resp  = requests.get(f"{url_base}/{endpoint}", params=params, timeout=20)
             resp.raise_for_status()
             data  = resp.json()
             body  = data.get("response", {}).get("body", {})
@@ -180,58 +189,116 @@ def _build_item(item: dict, source: str = "실공고") -> dict:
 
 # ── 수집 함수 ───────────────────────────────────────────────────
 
+def _build_prenotice_item(item: dict) -> dict:
+    """HrcspSsstndrdInfoService 응답 → 표준 item 구조 변환"""
+    amt     = _parse_amount(item.get("asignBdgtAmt") or item.get("presmptPrce"))
+    reg_no  = item.get("bfSpecRgstNo", "")
+    # 품명 필드는 API에 따라 다를 수 있어 여러 후보 시도
+    title   = (item.get("bidNtceNm")
+               or item.get("prdctClsfcNoNm")
+               or item.get("specNm")
+               or "")
+    url     = (item.get("specDocFileUrl")
+               or item.get("bidNtceDtlUrl")
+               or "")
+
+    return {
+        "collected_at": _now_kst().strftime("%Y-%m-%d %H:%M"),
+        "unique_id":    f"pre_{reg_no}",
+        "ntce_kind":    "사전규격공개",
+        "bid_no":       reg_no,
+        "bid_seq":      "00",
+        "title":        title,
+        "amount":       amt,
+        "amount_str":   _fmt_amount(amt),
+        "org":          item.get("ntceInsttNm", ""),
+        "demand_org":   item.get("dminsttNm", ""),
+        "announce_dt":  _parse_datetime(item.get("rgstDt")),
+        "open_dt":      _parse_date(item.get("opnnRcptdDt")),
+        "url":          url,
+    }
+
+
 def collect_prenotice() -> list:
     """
-    사전규격공개(R26BD) 수집
-    - getBidPblancListInfoServcPPSSrch 는 실공고(R26BK)를 반환 → 사용 불가
-    - 올바른 엔드포인트를 탐색하여 첫 번째 항목의 공고번호 확인
+    사전규격공개 수집 (HrcspSsstndrdInfoService)
+    - data.go.kr에서 '조달청_나라장터 사전규격정보서비스' 별도 신청 필요
+    - API 키가 없으면 빈 리스트 반환
+    - 용역 엔드포인트(getPublicPrcureThngInfoServc) 사용, 키워드는 클라이언트 필터
     """
-    start, end = _past(30)
+    if not G2B_API_KEY:
+        print("[사전규격] API 키 미설정 — 수집 생략")
+        return []
 
-    # 후보 엔드포인트 목록 (순서대로 시도)
-    candidates = [
-        "getBidPblancListInfoServcPPSBD",   # BD 타입 직접
-        "getPrePriceOpenInfoServc",          # 사전규격공개 서비스
-        "getBidPblancListInfoServcPPS",      # PPS 단축형
-    ]
-    for endpoint in candidates:
-        try:
-            params = {
-                "serviceKey": G2B_API_KEY,
-                "type":       "json",
-                "numOfRows":  5,
-                "pageNo":     1,
-                "inqryDiv":   "1",
-                "inqryBgnDt": start + "0000",
-                "inqryEndDt": end   + "2359",
-                "bidNtceNm":  KEYWORD,
-            }
-            resp = requests.get(f"{BASE_URL}/{endpoint}", params=params, timeout=15)
-            data = resp.json()
-            body = data.get("response", {}).get("body", {})
-            items = body.get("items", [])
-            if isinstance(items, dict):
-                items = [items]
-            if items:
-                sample_no = items[0].get("bidNtceNo", "")
-                print(f"[탐색] {endpoint} → bidNtceNo: {sample_no}")
-                if "BD" in sample_no.upper():
-                    print(f"[탐색] 사전규격 엔드포인트 발견: {endpoint}")
-                    # 전체 수집
-                    raw = _fetch_all(endpoint, {
-                        "inqryDiv":   "1",
-                        "inqryBgnDt": start + "0000",
-                        "inqryEndDt": end   + "2359",
-                        "bidNtceNm":  KEYWORD,
-                    })
-                    return [_build_item(i, source="사전규격") for i in raw]
-            else:
-                print(f"[탐색] {endpoint} → 결과 없음 (totalCount={body.get('totalCount',0)})")
-        except Exception as e:
-            print(f"[탐색] {endpoint} → 오류: {e}")
+    start, end = _past(2)
+    raw = _fetch_all(
+        "getPublicPrcureThngInfoServc",
+        {
+            "inqryDiv":   "1",
+            "inqryBgnDt": start + "0000",
+            "inqryEndDt": end   + "2359",
+        },
+        base_url=PRENOTICE_BASE_URL,
+    )
 
-    print("[사전규격] 유효한 엔드포인트를 찾지 못함 — 수집 생략")
-    return []
+    # API가 키워드 검색을 지원하지 않으므로 클라이언트에서 필터
+    def _title_of(i):
+        return (i.get("bidNtceNm") or i.get("prdctClsfcNoNm") or i.get("specNm") or "")
+
+    matched = [i for i in raw if any(kw in _title_of(i) for kw in CM_KEYWORDS)]
+    print(f"[사전규격] 전체 {len(raw)}건 중 키워드 매칭 {len(matched)}건")
+    return [_build_prenotice_item(i) for i in matched]
+
+
+def _build_orderplan_item(item: dict) -> dict:
+    """OrderPlanSttusService 응답 → 표준 item 구조 변환"""
+    amt     = _parse_amount(item.get("sumOrderAmt") or item.get("orderContrctAmt"))
+    plan_no = item.get("orderPlanUntyNo", "")
+
+    return {
+        "collected_at": _now_kst().strftime("%Y-%m-%d %H:%M"),
+        "unique_id":    f"plan_{plan_no}",
+        "ntce_kind":    "발주계획",
+        "bid_no":       plan_no,
+        "bid_seq":      "00",
+        "title":        item.get("bizNm", ""),
+        "amount":       amt,
+        "amount_str":   _fmt_amount(amt),
+        "org":          item.get("orderInsttNm", ""),
+        "demand_org":   item.get("totlmngInsttNm", ""),
+        "announce_dt":  _parse_datetime(item.get("nticeDt")),
+        "open_dt":      "",   # 발주계획은 월 단위(orderMnth)만 제공, 생략
+        "url":          "",   # 발주계획 API는 상세 URL 미제공
+    }
+
+
+def collect_order_plans() -> list:
+    """
+    발주계획 수집 (OrderPlanSttusService)
+    - data.go.kr에서 '조달청_나라장터 발주계획현황서비스' 별도 신청 필요
+    - 필수 파라미터: orderPlanYr + inqryDiv (날짜 범위 미지원)
+    - 해당 연도 전체 수집 후 키워드·날짜 클라이언트 필터
+    """
+    if not G2B_API_KEY:
+        print("[발주계획] API 키 미설정 — 수집 생략")
+        return []
+
+    year = _now_kst().strftime("%Y")
+    raw  = _fetch_all(
+        "getOrderPlanSttusListServc",
+        {"orderPlanYr": year, "inqryDiv": "1"},
+        base_url=ORDERPLAN_BASE_URL,
+    )
+
+    # 키워드 필터
+    matched = [i for i in raw if any(kw in i.get("bizNm", "") for kw in CM_KEYWORDS)]
+
+    # 날짜 필터: 수집 범위(2일) 내 등록건만
+    cutoff = (_now_kst() - timedelta(days=2)).strftime("%Y-%m-%d")
+    recent = [i for i in matched if (i.get("nticeDt") or "") >= cutoff]
+
+    print(f"[발주계획] 전체 {len(raw)}건 → 키워드 {len(matched)}건 → 최근 2일 {len(recent)}건")
+    return [_build_orderplan_item(i) for i in recent]
 
 
 def collect_real_bids() -> list:
@@ -248,8 +315,9 @@ def collect_real_bids() -> list:
 
 def collect_all() -> list:
     results = []
-    results += collect_prenotice()   # 사전규격 먼저
-    results += collect_real_bids()   # 실공고 나중
+    results += collect_prenotice()    # 사전규격
+    results += collect_order_plans()  # 발주계획
+    results += collect_real_bids()    # 실공고
 
     # 배치 내 중복 제거 (unique_id 기준, 사전규격 우선)
     seen, deduped = set(), []

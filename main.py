@@ -9,8 +9,7 @@ sys.path.insert(0, BASE_DIR)
 from crawlers.g2b      import collect_all
 from filters.rules     import filter_items
 from storage.sheets    import connect, ensure_headers, append_new_items
-from notifier.mailer   import send
-from config            import LOG_FILE, SHEET_ID, CREDENTIALS_FILE, RECIPIENTS
+from config            import LOG_FILE, SHEET_ID, CREDENTIALS_FILE
 
 
 def log(msg: str) -> None:
@@ -45,15 +44,6 @@ def main() -> None:
     ensure_headers(sheet)
     new_items = append_new_items(sheet, filtered)
     log(f"  신규 추가: {len(new_items)}건")
-
-    # 4. 이메일 알림 (신규 있을 때 + 수신자 설정된 경우만)
-    if new_items and RECIPIENTS:
-        log("이메일 알림 발송 중...")
-        send(new_items)
-    elif new_items and not RECIPIENTS:
-        log("신규 공고 있음 — 수신자 미설정으로 이메일 생략")
-    else:
-        log("신규 공고 없음 — 이메일 생략")
 
     log("완료")
 

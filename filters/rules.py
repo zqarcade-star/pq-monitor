@@ -28,22 +28,6 @@ def _passes_amount(item: dict) -> bool:
 
 
 def filter_items(items: list) -> list:
-    passed, fail_kw, fail_amt = [], [], []
-    for i in items:
-        if not _is_relevant(i):
-            fail_kw.append(i)
-        elif not _passes_amount(i):
-            fail_amt.append(i)
-        else:
-            passed.append(i)
-
-    # 디버그: 사전규격 항목 통과 현황
-    pre_total  = sum(1 for i in items   if "BD" in i.get("bid_no","").upper()[1:5])
-    pre_passed = sum(1 for i in passed  if "BD" in i.get("bid_no","").upper()[1:5])
-    print(f"[필터] 사전규격(R26BD) 수집:{pre_total}건 → 통과:{pre_passed}건")
-    print(f"[필터] 키워드 탈락:{len(fail_kw)}건 / 금액 탈락:{len(fail_amt)}건")
-    if fail_kw:
-        print(f"[필터] 키워드 탈락 샘플: {fail_kw[0].get('title','')} / bid_no={fail_kw[0].get('bid_no','')}")
-
-    passed.sort(key=lambda x: x.get("announce_dt", "") or "")
-    return passed
+    result = [i for i in items if _is_relevant(i) and _passes_amount(i)]
+    result.sort(key=lambda x: x.get("announce_dt", "") or "")
+    return result
