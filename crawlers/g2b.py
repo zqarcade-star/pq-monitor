@@ -230,7 +230,7 @@ def collect_prenotice() -> list:
         print("[사전규격] API 키 미설정 — 수집 생략")
         return []
 
-    start, end = _past(2)
+    start, end = _past(3)
     raw = _fetch_all(
         "getPublicPrcureThngInfoServc",
         {
@@ -247,6 +247,8 @@ def collect_prenotice() -> list:
 
     matched = [i for i in raw if any(kw in _title_of(i) for kw in CM_KEYWORDS)]
     print(f"[사전규격] 전체 {len(raw)}건 중 키워드 매칭 {len(matched)}건")
+    if matched:
+        print(f"[사전규격][디버그] 샘플 필드: {list(matched[0].keys())}")
     return [_build_prenotice_item(i) for i in matched]
 
 
@@ -293,11 +295,13 @@ def collect_order_plans() -> list:
     # 키워드 필터
     matched = [i for i in raw if any(kw in i.get("bizNm", "") for kw in CM_KEYWORDS)]
 
-    # 날짜 필터: 수집 범위(2일) 내 등록건만
-    cutoff = (_now_kst() - timedelta(days=2)).strftime("%Y-%m-%d")
+    # 날짜 필터: 수집 범위(3일) 내 등록건만
+    cutoff = (_now_kst() - timedelta(days=3)).strftime("%Y-%m-%d")
     recent = [i for i in matched if (i.get("nticeDt") or "") >= cutoff]
 
-    print(f"[발주계획] 전체 {len(raw)}건 → 키워드 {len(matched)}건 → 최근 2일 {len(recent)}건")
+    print(f"[발주계획] 전체 {len(raw)}건 → 키워드 {len(matched)}건 → 최근 3일 {len(recent)}건")
+    if recent:
+        print(f"[발주계획][디버그] 샘플 필드: {list(recent[0].keys())}")
     return [_build_orderplan_item(i) for i in recent]
 
 
