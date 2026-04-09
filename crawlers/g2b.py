@@ -194,8 +194,8 @@ def _build_prenotice_item(item: dict) -> dict:
     amt    = _parse_amount(item.get("asignBdgtAmt") or item.get("presmptPrce"))
     reg_no = item.get("bfSpecRgstNo", "")
     title  = item.get("prdctClsfcNoNm") or ""
-    url    = (item.get("specDocFileUrl1") or item.get("specDocFileUrl2")
-              or item.get("specDocFileUrl3") or "")
+    url    = (f"https://www.g2b.go.kr:8101/ep/bp/bpbids/retrieveBfSpecDtl.do"
+              f"?bfSpecRgstNo={reg_no}&releaseYn=Y") if reg_no else ""
 
     return {
         "collected_at": _now_kst().strftime("%Y-%m-%d %H:%M"),
@@ -263,7 +263,8 @@ def _build_orderplan_item(item: dict) -> dict:
         "demand_org":   item.get("totlmngInsttNm", ""),
         "announce_dt":  _parse_datetime(item.get("nticeDt")),
         "open_dt":      "",   # 발주계획은 월 단위(orderMnth)만 제공, 생략
-        "url":          "",   # 발주계획 API는 상세 URL 미제공
+        "url":          (f"https://www.g2b.go.kr:8101/ep/bp/bpbids/retrieveOdrPlnDtl.do"
+                         f"?orderPlanUntyNo={plan_no}") if plan_no else "",
     }
 
 
