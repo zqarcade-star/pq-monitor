@@ -2,7 +2,7 @@
 나라장터(G2B) 크롤러
 - 사전규격공개 / 실공고 전체 수집 (페이지네이션)
 - 키워드: 건설사업관리
-- 수집 범위: 오늘 기준 2일 전 ~ 오늘 (KST)
+- 수집 범위: 오늘 기준 2일 전 ~ 오늘 (KST, 최근 2일)
 """
 import requests
 from datetime import datetime, timedelta, timezone
@@ -224,7 +224,7 @@ def collect_prenotice() -> list:
         print("[사전규격] API 키 미설정 — 수집 생략")
         return []
 
-    start, end = _past(3)
+    start, end = _past(2)
     raw = _fetch_all(
         "getPublicPrcureThngInfoServc",
         {
@@ -287,17 +287,17 @@ def collect_order_plans() -> list:
     # 키워드 필터
     matched = [i for i in raw if any(kw in i.get("bizNm", "") for kw in CM_KEYWORDS)]
 
-    # 날짜 필터: 수집 범위(3일) 내 등록건만
-    cutoff = (_now_kst() - timedelta(days=3)).strftime("%Y-%m-%d")
+    # 날짜 필터: 수집 범위(2일) 내 등록건만
+    cutoff = (_now_kst() - timedelta(days=2)).strftime("%Y-%m-%d")
     recent = [i for i in matched if (i.get("nticeDt") or "") >= cutoff]
 
-    print(f"[발주계획] 전체 {len(raw)}건 → 키워드 {len(matched)}건 → 최근 3일 {len(recent)}건")
+    print(f"[발주계획] 전체 {len(raw)}건 → 키워드 {len(matched)}건 → 최근 2일 {len(recent)}건")
     return [_build_orderplan_item(i) for i in recent]
 
 
 def collect_real_bids() -> list:
-    """실공고(등록공고) 수집 — 등록일 기준 3일 (KST)"""
-    start, end = _past(3)
+    """실공고(등록공고) 수집 — 등록일 기준 2일 (KST)"""
+    start, end = _past(2)
     raw = _fetch_all("getBidPblancListInfoServc", {
         "inqryDiv":   "1",
         "inqryBgnDt": start + "0000",

@@ -2,11 +2,13 @@ name: PQ Monitor
 
 on:
   schedule:
-    # KST 06:00 / 09:00 / 12:00 / 15:00 / 18:00 (UTC+9 → UTC)
+    # KST 06:00 ~ 18:00, 2시간 간격 7회 (UTC+9 → UTC)
     - cron: '0 21 * * *'   # 06:00 KST
-    - cron: '0 0  * * *'   # 09:00 KST
+    - cron: '0 23 * * *'   # 08:00 KST
+    - cron: '0 1  * * *'   # 10:00 KST
     - cron: '0 3  * * *'   # 12:00 KST
-    - cron: '0 6  * * *'   # 15:00 KST
+    - cron: '0 5  * * *'   # 14:00 KST
+    - cron: '0 7  * * *'   # 16:00 KST
     - cron: '0 9  * * *'   # 18:00 KST
   workflow_dispatch:        # 수동 실행 버튼
 
