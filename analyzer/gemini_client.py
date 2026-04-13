@@ -4,10 +4,12 @@ questions: list of {"team": str, "name": str, "question": str, "hint": str, "typ
 """
 
 
-def analyze(text: str, questions: list[dict], api_key: str) -> dict:
+def analyze(text: str, questions: list[dict], api_key: str, max_retries: int = 5) -> dict:
     """
     Returns: {항목명: 답변, ...}
+    503 오류 시 최대 max_retries회 재시도 (지수 백오프)
     """
+    import time
     from google import genai
 
     client = genai.Client(api_key=api_key)
@@ -45,11 +47,20 @@ def analyze(text: str, questions: list[dict], api_key: str) -> dict:
 {text[:80000]}
 """
 
-    response = client.models.generate_content(
-        model="models/gemini-2.5-flash",
-        contents=prompt,
-    )
-    raw = response.text.strip()
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="models/gemini-2.5-flash",
+                contents=prompt,
+            )
+            raw = response.text.strip()
+            break
+        except Exception as e:
+            if attempt < max_retries - 1 and ("503" in str(e) or "UNAVAILABLE" in str(e)):
+                wait = 2 ** attempt  # 1, 2, 4, 8, 16초
+                time.sleep(wait)
+            else:
+                raise
 
     results = {}
     for q in questions:
