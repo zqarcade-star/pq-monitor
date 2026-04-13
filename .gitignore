@@ -1,7 +1,14 @@
 credentials.json
+credentials.json.json
 .env
 __pycache__/
 *.pyc
 *.pyo
 logs/
 data/
+analyzer/.streamlit/secrets.toml
+*.hwp
+*.hwpx
+*.pdf
+*.xlsx
+*.xls
