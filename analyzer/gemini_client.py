@@ -48,31 +48,26 @@ def analyze(text: str, questions: list[dict], api_key: str, max_retries: int = 5
 {text[:80000]}
 """
 
-    # 2.5-flash 먼저 시도, 503 지속 시 2.0-flash로 자동 전환
-    models = ["models/gemini-2.5-flash", "models/gemini-2.0-flash"]
     last_error = None
     raw = None
 
-    for model in models:
-        for attempt in range(3):
-            try:
-                response = client.models.generate_content(
-                    model=model,
-                    contents=prompt,
-                )
-                raw = response.text.strip()
-                break
-            except Exception as e:
-                last_error = e
-                if "503" in str(e) or "UNAVAILABLE" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                    time.sleep(2 ** attempt)  # 1, 2, 4초
-                else:
-                    raise
-        if raw is not None:
-            break  # 성공
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model="models/gemini-2.5-flash",
+                contents=prompt,
+            )
+            raw = response.text.strip()
+            break
+        except Exception as e:
+            last_error = e
+            if "503" in str(e) or "UNAVAILABLE" in str(e):
+                time.sleep(2 ** attempt)
+            else:
+                raise  # 429 등 재시도 의미 없는 오류는 바로 상위로
 
     if raw is None:
-        raise Exception(f"모든 모델 503 오류 — 잠시 후 다시 시도하세요. ({last_error})")
+        raise Exception(f"Gemini 오류 — 잠시 후 다시 시도하세요. ({last_error})")
 
 
     results = {}
@@ -114,22 +109,20 @@ def ask_followup(text: str, question: str, api_key: str) -> str:
 {text[:80000]}
 """
 
-    models = ["models/gemini-2.5-flash", "models/gemini-2.0-flash"]
     last_error = None
 
-    for model in models:
-        for attempt in range(3):
-            try:
-                response = client.models.generate_content(
-                    model=model,
-                    contents=prompt,
-                )
-                return response.text.strip()
-            except Exception as e:
-                last_error = e
-                if "503" in str(e) or "UNAVAILABLE" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                    time.sleep(2 ** attempt)
-                else:
-                    raise
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model="models/gemini-2.5-flash",
+                contents=prompt,
+            )
+            return response.text.strip()
+        except Exception as e:
+            last_error = e
+            if "503" in str(e) or "UNAVAILABLE" in str(e):
+                time.sleep(2 ** attempt)
+            else:
+                raise
 
-    raise Exception(f"모든 모델 503 오류 — 잠시 후 다시 시도하세요. ({last_error})")
+    raise Exception(f"Gemini 오류 — 잠시 후 다시 시도하세요. ({last_error})")
