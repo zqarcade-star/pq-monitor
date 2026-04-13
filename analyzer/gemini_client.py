@@ -50,7 +50,7 @@ def analyze(text: str, questions: list[dict], api_key: str, max_retries: int = 5
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model="models/gemini-2.5-flash",
+                model="models/gemini-2.0-flash",
                 contents=prompt,
             )
             raw = response.text.strip()
