@@ -73,6 +73,7 @@ def analyze(text: str, questions: list[dict], api_key: str, max_retries: int = 5
     if raw is None:
         raise Exception(f"모든 모델 503 오류 — 잠시 후 다시 시도하세요. ({last_error})")
 
+
     results = {}
     for q in questions:
         name = q["name"]
@@ -85,3 +86,44 @@ def analyze(text: str, questions: list[dict], api_key: str, max_retries: int = 5
             results[name] = "파싱실패"
 
     return results
+
+
+def ask_followup(text: str, question: str, api_key: str) -> str:
+    """
+    분석된 문서에 대해 추가 질의 응답
+    """
+    import time
+    from google import genai
+
+    client = genai.Client(api_key=api_key)
+
+    prompt = f"""[역할]
+너는 대한민국의 「건설기술 진흥법」 및 국토교통부·행정안전부의 건설엔지니어링 입찰 지침에 정통한 '공공입찰 분석 전문가'야.
+아래 공고 문서를 바탕으로 질문에 답하라.
+
+[질문]
+{question}
+
+=== 문서 내용 ===
+{text[:80000]}
+"""
+
+    models = ["models/gemini-2.5-flash", "models/gemini-2.0-flash"]
+    last_error = None
+
+    for model in models:
+        for attempt in range(3):
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                )
+                return response.text.strip()
+            except Exception as e:
+                last_error = e
+                if "503" in str(e) or "UNAVAILABLE" in str(e):
+                    time.sleep(2 ** attempt)
+                else:
+                    raise
+
+    raise Exception(f"모든 모델 503 오류 — 잠시 후 다시 시도하세요. ({last_error})")

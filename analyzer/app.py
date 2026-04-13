@@ -7,7 +7,7 @@ import json
 import pandas as pd
 
 from extractor import extract_text
-from gemini_client import analyze
+from gemini_client import analyze, ask_followup
 import sheets_client
 
 st.set_page_config(page_title="공고 분석기", page_icon="📋", layout="wide")
@@ -164,6 +164,7 @@ def page_analyze():
         st.session_state["last_results"] = results
         st.session_state["last_bid_no"] = bid_no
         st.session_state["last_teams"] = selected_teams
+        st.session_state["last_combined"] = combined
 
     # 시트 저장 버튼
     if st.session_state.get("last_results"):
@@ -188,6 +189,32 @@ def page_analyze():
                         st.error(f"저장 실패: {e}")
         else:
             st.info("공고번호를 입력해야 시트에 저장할 수 있습니다.")
+
+    # 추가 질의
+    if st.session_state.get("last_combined"):
+        st.divider()
+        st.subheader("추가 질의")
+        followup_q = st.text_area(
+            "문서에 대해 추가로 궁금한 점을 입력하세요",
+            placeholder="예) 입찰 참가 자격 요건은?\n예) 하도급 제한 조건이 있나요?",
+            height=100,
+        )
+        if st.button("질의하기"):
+            if not followup_q.strip():
+                st.warning("질문을 입력하세요.")
+            else:
+                api_key = st.secrets.get("GEMINI_API_KEY", "")
+                with st.spinner("Gemini AI 답변 생성 중..."):
+                    try:
+                        answer = ask_followup(
+                            st.session_state["last_combined"],
+                            followup_q,
+                            api_key,
+                        )
+                        st.markdown("**답변:**")
+                        st.markdown(answer)
+                    except Exception as e:
+                        st.error(f"질의 실패: {e}")
 
 
 # ── 페이지: 질문 설정 ────────────────────────────────────────────
