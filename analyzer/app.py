@@ -194,10 +194,25 @@ def page_analyze():
     if st.session_state.get("last_combined"):
         st.divider()
         st.subheader("추가 질의")
+        st.caption("업로드한 문서 내용만을 근거로 답변합니다. 문서에 없는 내용은 '확인되지 않습니다'로 답변됩니다.")
+
+        # Q&A 히스토리 초기화
+        if "qa_history" not in st.session_state:
+            st.session_state["qa_history"] = []
+
+        # 기존 히스토리 표시
+        for i, (q, a) in enumerate(st.session_state["qa_history"]):
+            with st.container():
+                st.markdown(f"**Q{i+1}. {q}**")
+                st.markdown(a)
+                st.divider()
+
+        # 질문 입력
         followup_q = st.text_area(
-            "문서에 대해 추가로 궁금한 점을 입력하세요",
+            "추가 질문",
             placeholder="예) 입찰 참가 자격 요건은?\n예) 하도급 제한 조건이 있나요?",
             height=100,
+            key="followup_input",
         )
         if st.button("질의하기"):
             if not followup_q.strip():
@@ -211,8 +226,8 @@ def page_analyze():
                             followup_q,
                             api_key,
                         )
-                        st.markdown("**답변:**")
-                        st.markdown(answer)
+                        st.session_state["qa_history"].append((followup_q, answer))
+                        st.rerun()
                     except Exception as e:
                         st.error(f"질의 실패: {e}")
 
