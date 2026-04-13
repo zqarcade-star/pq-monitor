@@ -47,20 +47,31 @@ def analyze(text: str, questions: list[dict], api_key: str, max_retries: int = 5
 {text[:80000]}
 """
 
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model="models/gemini-2.0-flash",
-                contents=prompt,
-            )
-            raw = response.text.strip()
-            break
-        except Exception as e:
-            if attempt < max_retries - 1 and ("503" in str(e) or "UNAVAILABLE" in str(e)):
-                wait = 2 ** attempt  # 1, 2, 4, 8, 16초
-                time.sleep(wait)
-            else:
-                raise
+    # 2.5-flash 먼저 시도, 503 지속 시 2.0-flash로 자동 전환
+    models = ["models/gemini-2.5-flash", "models/gemini-2.0-flash"]
+    last_error = None
+    raw = None
+
+    for model in models:
+        for attempt in range(3):
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                )
+                raw = response.text.strip()
+                break
+            except Exception as e:
+                last_error = e
+                if "503" in str(e) or "UNAVAILABLE" in str(e):
+                    time.sleep(2 ** attempt)  # 1, 2, 4초
+                else:
+                    raise
+        if raw is not None:
+            break  # 성공
+
+    if raw is None:
+        raise Exception(f"모든 모델 503 오류 — 잠시 후 다시 시도하세요. ({last_error})")
 
     results = {}
     for q in questions:
