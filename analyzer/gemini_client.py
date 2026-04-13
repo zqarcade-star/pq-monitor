@@ -1,14 +1,22 @@
 """
 Gemini Flash API 분석 클라이언트
 questions: list of {"team": str, "name": str, "question": str, "hint": str, "type": str}
+
+모델 전략:
+- 1순위: gemini-2.5-flash (20회/일, 정확도 높음)
+- 2순위: gemini-2.0-flash (1,500회/일, 안정적 fallback)
+- 503(과부하) / 429(한도 초과) 시 자동 전환
 """
 from __future__ import annotations
+
+
+MODELS = ["models/gemini-2.5-flash", "models/gemini-2.0-flash"]
 
 
 def analyze(text: str, questions: list[dict], api_key: str, max_retries: int = 5) -> dict:
     """
     Returns: {항목명: 답변, ...}
-    503 오류 시 최대 max_retries회 재시도 (지수 백오프)
+    503/429 오류 시 다음 모델로 전환, 각 모델 3회 재시도 (지수 백오프)
     """
     import time
     from google import genai
@@ -49,39 +57,40 @@ def analyze(text: str, questions: list[dict], api_key: str, max_retries: int = 5
 """
 
     last_error = None
-    raw = None
 
-    for attempt in range(3):
-        try:
-            response = client.models.generate_content(
-                model="models/gemini-2.5-flash",
-                contents=prompt,
-            )
-            raw = response.text.strip()
-            break
-        except Exception as e:
-            last_error = e
-            if "503" in str(e) or "UNAVAILABLE" in str(e):
-                time.sleep(2 ** attempt)
-            else:
-                raise  # 429 등 재시도 의미 없는 오류는 바로 상위로
+    for model in MODELS:
+        for attempt in range(3):
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                )
+                raw = response.text.strip()
 
-    if raw is None:
-        raise Exception(f"Gemini 오류 — 잠시 후 다시 시도하세요. ({last_error})")
+                results = {}
+                for q in questions:
+                    name = q["name"]
+                    for line in raw.splitlines():
+                        if f"[{name}]" in line:
+                            answer = line.split(":", 1)[-1].strip()
+                            results[name] = answer
+                            break
+                    else:
+                        results[name] = "파싱실패"
 
+                return results
 
-    results = {}
-    for q in questions:
-        name = q["name"]
-        for line in raw.splitlines():
-            if f"[{name}]" in line:
-                answer = line.split(":", 1)[-1].strip()
-                results[name] = answer
-                break
-        else:
-            results[name] = "파싱실패"
+            except Exception as e:
+                last_error = e
+                err = str(e)
+                if "503" in err or "UNAVAILABLE" in err:
+                    time.sleep(2 ** attempt)
+                elif "429" in err or "RESOURCE_EXHAUSTED" in err:
+                    break  # 이 모델 한도 초과 → 다음 모델로
+                else:
+                    raise
 
-    return results
+    raise Exception(f"Gemini 분석 실패 — 잠시 후 다시 시도하세요. ({last_error})")
 
 
 def ask_followup(text: str, question: str, api_key: str) -> str:
@@ -111,18 +120,22 @@ def ask_followup(text: str, question: str, api_key: str) -> str:
 
     last_error = None
 
-    for attempt in range(3):
-        try:
-            response = client.models.generate_content(
-                model="models/gemini-2.5-flash",
-                contents=prompt,
-            )
-            return response.text.strip()
-        except Exception as e:
-            last_error = e
-            if "503" in str(e) or "UNAVAILABLE" in str(e):
-                time.sleep(2 ** attempt)
-            else:
-                raise
+    for model in MODELS:
+        for attempt in range(3):
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                )
+                return response.text.strip()
+            except Exception as e:
+                last_error = e
+                err = str(e)
+                if "503" in err or "UNAVAILABLE" in err:
+                    time.sleep(2 ** attempt)
+                elif "429" in err or "RESOURCE_EXHAUSTED" in err:
+                    break  # 다음 모델로
+                else:
+                    raise
 
-    raise Exception(f"Gemini 오류 — 잠시 후 다시 시도하세요. ({last_error})")
+    raise Exception(f"Gemini 질의 실패 — 잠시 후 다시 시도하세요. ({last_error})")
