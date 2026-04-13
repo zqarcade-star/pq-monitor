@@ -2,6 +2,7 @@
 Gemini Flash API 분석 클라이언트
 questions: list of {"team": str, "name": str, "question": str, "hint": str, "type": str}
 """
+from __future__ import annotations
 
 
 def analyze(text: str, questions: list[dict], api_key: str, max_retries: int = 5) -> dict:
