@@ -64,7 +64,7 @@ def analyze(text: str, questions: list[dict], api_key: str, max_retries: int = 5
                 break
             except Exception as e:
                 last_error = e
-                if "503" in str(e) or "UNAVAILABLE" in str(e):
+                if "503" in str(e) or "UNAVAILABLE" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                     time.sleep(2 ** attempt)  # 1, 2, 4초
                 else:
                     raise
@@ -127,7 +127,7 @@ def ask_followup(text: str, question: str, api_key: str) -> str:
                 return response.text.strip()
             except Exception as e:
                 last_error = e
-                if "503" in str(e) or "UNAVAILABLE" in str(e):
+                if "503" in str(e) or "UNAVAILABLE" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                     time.sleep(2 ** attempt)
                 else:
                     raise
